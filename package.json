@@ -32,7 +32,7 @@
     "prepare": "npm run build",
     "watch": "tsc --watch",
     "pretest": "npm run build",
-    "test": "node --test test/",
+    "test": "node --test test/*.test.js",
     "inspector": "npx @modelcontextprotocol/inspector build/index.js"
   },
   "dependencies": {
