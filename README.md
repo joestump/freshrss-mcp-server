@@ -1,5 +1,7 @@
 # FreshRSS MCP Server
 
+[![CI](https://github.com/joestump/freshrss-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/joestump/freshrss-mcp-server/actions/workflows/ci.yml)
+
 A Model Context Protocol server for interacting with FreshRSS feeds via the
 **Google Reader compatible API** (`/api/greader.php`).
 
@@ -64,6 +66,7 @@ Feed IDs may be given either as plain numbers (`3`) or in Google Reader form
 
 ## Requirements
 
+- [Node.js](https://nodejs.org/) 18 or newer
 - A running FreshRSS instance with API access enabled
 - The instance URL, your username, and your **API password**
 
@@ -83,6 +86,21 @@ For development with auto-rebuild:
 ```bash
 npm run watch
 ```
+
+### Testing
+
+The test suite is a dependency-free smoke test (Node's built-in
+[`node:test`](https://nodejs.org/api/test.html)) that boots the built server and
+verifies it starts with the required environment variables, fails clearly
+without them, and accepts the `FRESHRSS_PASSWORD` fallback. `npm test` builds
+first, so you can run it directly:
+
+```bash
+npm test
+```
+
+CI runs `npm ci`, `npm run build`, and `npm test` on Node 18, 20, and 22 for
+every push and pull request (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
 
 ### Environment Variables
 
