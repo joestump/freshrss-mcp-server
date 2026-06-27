@@ -13,6 +13,12 @@ import axios, { AxiosError, AxiosRequestConfig } from "axios";
 // GReader state constants
 const STATE_READ = "user/-/state/com.google/read";
 
+// Form-encoded POST bodies are used for every write action and for fetching
+// items by id.
+const FORM_HEADERS = {
+  "Content-Type": "application/x-www-form-urlencoded",
+} as const;
+
 /**
  * Client for the FreshRSS Google Reader compatible API (`/api/greader.php`).
  *
@@ -108,34 +114,68 @@ class FreshRSSClient {
     config: AxiosRequestConfig = {},
   ): Promise<T> {
     await this.ensureAuth();
-
-    const send = () =>
-      axios.request<T>({
-        method,
-        url: `${this.endpoint}/${path}`,
-        ...config,
-        headers: {
-          Authorization: `GoogleLogin auth=${this.authToken}`,
-          ...(config.headers ?? {}),
-        },
-      });
-
     try {
-      return (await send()).data;
+      return await this.send<T>(method, path, config);
     } catch (error) {
-      if (axios.isAxiosError(error) && error.response?.status === 401) {
-        // Token likely expired — drop cached state and retry once.
-        this.authToken = null;
-        this.writeToken = null;
-        await this.ensureAuth();
-        try {
-          return (await send()).data;
-        } catch (retryError) {
-          throw this.toMcpError(retryError, "FreshRSS API error");
-        }
+      if (!FreshRSSClient.isUnauthorized(error)) {
+        throw this.toMcpError(error, "FreshRSS API error");
       }
-      throw this.toMcpError(error, "FreshRSS API error");
+      // Token likely expired — drop cached state and re-authenticate once.
+      this.resetTokens();
+      await this.ensureAuth();
+      try {
+        return await this.send<T>(method, path, config);
+      } catch (retryError) {
+        throw this.toMcpError(retryError, "FreshRSS API error");
+      }
     }
+  }
+
+  /** Issue a single authenticated request and return its body. */
+  private async send<T>(
+    method: "GET" | "POST",
+    path: string,
+    config: AxiosRequestConfig,
+  ): Promise<T> {
+    const response = await axios.request<T>({
+      method,
+      url: `${this.endpoint}/${path}`,
+      ...config,
+      headers: {
+        Authorization: `GoogleLogin auth=${this.authToken}`,
+        ...(config.headers ?? {}),
+      },
+    });
+    return response.data;
+  }
+
+  /** Drop cached auth/write tokens so the next request re-authenticates. */
+  private resetTokens(): void {
+    this.authToken = null;
+    this.writeToken = null;
+  }
+
+  /** Whether an error is an expired-token 401 response from FreshRSS. */
+  private static isUnauthorized(error: unknown): boolean {
+    return axios.isAxiosError(error) && error.response?.status === 401;
+  }
+
+  /** GET a JSON endpoint with the standard `output=json` parameter. */
+  private getJson<T = unknown>(
+    path: string,
+    params: Record<string, string | number> = {},
+  ): Promise<T> {
+    return this.request<T>("GET", path, {
+      params: { output: "json", ...params },
+    });
+  }
+
+  /** POST a form-encoded body. */
+  private postForm<T = unknown>(
+    path: string,
+    body: URLSearchParams,
+  ): Promise<T> {
+    return this.request<T>("POST", path, { data: body, headers: FORM_HEADERS });
   }
 
   private toMcpError(error: unknown, prefix: string): McpError {
@@ -165,36 +205,28 @@ class FreshRSSClient {
 
   /** List all feed subscriptions. */
   async getSubscriptions(): Promise<unknown> {
-    return this.request("GET", "reader/api/0/subscription/list", {
-      params: { output: "json" },
-    });
+    return this.getJson("reader/api/0/subscription/list");
   }
 
   /** List tags / folders (the GReader equivalent of feed groups). */
   async getFeedGroups(): Promise<unknown> {
-    return this.request("GET", "reader/api/0/tag/list", {
-      params: { output: "json" },
-    });
+    return this.getJson("reader/api/0/tag/list");
   }
 
   /** Get unread items from the reading list. */
   async getUnreadItems(limit = 50): Promise<unknown> {
-    return this.request("GET", "reader/api/0/stream/contents/reading-list", {
-      params: {
-        output: "json",
-        n: limit,
-        xt: STATE_READ, // exclude already-read items
-      },
+    return this.getJson("reader/api/0/stream/contents/reading-list", {
+      n: limit,
+      xt: STATE_READ, // exclude already-read items
     });
   }
 
   /** Get items from a specific feed. */
   async getFeedItems(feedId: number | string, limit = 50): Promise<unknown> {
     const id = FreshRSSClient.numericFeedId(feedId);
-    return this.request(
-      "GET",
+    return this.getJson(
       `reader/api/0/stream/contents/feed/${encodeURIComponent(id)}`,
-      { params: { output: "json", n: limit } },
+      { n: limit },
     );
   }
 
@@ -204,10 +236,7 @@ class FreshRSSClient {
     for (const id of itemIds) {
       params.append("i", id);
     }
-    return this.request("POST", "reader/api/0/stream/items/contents", {
-      data: params,
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    });
+    return this.postForm("reader/api/0/stream/items/contents", params);
   }
 
   // --- Write operations -----------------------------------------------------
@@ -220,10 +249,7 @@ class FreshRSSClient {
     const token = await this.ensureWriteToken();
     const params = new URLSearchParams({ T: token, i: itemId });
     params.append(action === "add" ? "a" : "r", tag);
-    await this.request("POST", "reader/api/0/edit-tag", {
-      data: params,
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    });
+    await this.postForm("reader/api/0/edit-tag", params);
   }
 
   /** Mark an item as read. */
@@ -245,10 +271,7 @@ class FreshRSSClient {
       s: `feed/${id}`,
       ts: `${Date.now()}000`, // microseconds: mark everything older than "now"
     });
-    await this.request("POST", "reader/api/0/mark-all-as-read", {
-      data: params,
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    });
+    await this.postForm("reader/api/0/mark-all-as-read", params);
   }
 }
 
