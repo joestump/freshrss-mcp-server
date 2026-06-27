@@ -1,7 +1,7 @@
 {
   "name": "freshrss-mcp-server",
-  "version": "0.1.0",
-  "description": "A Model Context Protocol server for interacting with FreshRSS feeds via the Fever API",
+  "version": "0.2.0",
+  "description": "A Model Context Protocol server for interacting with FreshRSS feeds via the Google Reader API (OIDC-compatible)",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -31,6 +31,8 @@
     "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
     "prepare": "npm run build",
     "watch": "tsc --watch",
+    "pretest": "npm run build",
+    "test": "node --test test/*.test.js",
     "inspector": "npx @modelcontextprotocol/inspector build/index.js"
   },
   "dependencies": {
