@@ -54,13 +54,13 @@ class FreshRSSClient {
   }
 
   /** Authenticate via ClientLogin and cache the `Auth` token. */
-  private async login(): Promise<string> {
+  private async login(): Promise<void> {
     try {
       const response = await axios.post(
         `${this.endpoint}/accounts/ClientLogin`,
         new URLSearchParams({ Email: this.username, Passwd: this.password }),
         {
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          headers: FORM_HEADERS,
           responseType: "text",
           // ClientLogin returns 200 with the token, anything else is a failure.
         },
@@ -72,12 +72,11 @@ class FreshRSSClient {
         throw new McpError(
           ErrorCode.InvalidRequest,
           "FreshRSS ClientLogin did not return an Auth token. Check the username " +
-            "and that FRESHRSS_PASSWORD is the API password set in your FreshRSS " +
-            "profile (not your OIDC/web login password).",
+            "and that FRESHRSS_API_PASSWORD (or FRESHRSS_PASSWORD) is the API " +
+            "password set in your FreshRSS profile (not your OIDC/web login password).",
         );
       }
       this.authToken = match[1].trim();
-      return this.authToken;
     } catch (error) {
       if (error instanceof McpError) {
         throw error;
@@ -121,6 +120,11 @@ class FreshRSSClient {
         throw this.toMcpError(error, "FreshRSS API error");
       }
       // Token likely expired — drop cached state and re-authenticate once.
+      // Note: the retry replays the original body verbatim, so a write action
+      // whose body already embeds a write token `T` will reuse that same `T`.
+      // FreshRSS's write token is effectively static, so this is safe in
+      // practice; if a future server invalidates `T` on re-auth, write retries
+      // would need to rebuild the body with a fresh token.
       this.resetTokens();
       await this.ensureAuth();
       try {
