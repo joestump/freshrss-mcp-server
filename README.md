@@ -2,6 +2,9 @@
 
 [![CI](https://github.com/joestump/freshrss-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/joestump/freshrss-mcp-server/actions/workflows/ci.yml)
 
+> [!NOTE]
+> This fork is maintained by [Claude Code](https://claude.com/claude-code).
+
 A Model Context Protocol server for interacting with FreshRSS feeds via the
 **Google Reader compatible API** (`/api/greader.php`).
 
